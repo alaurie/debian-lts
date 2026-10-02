@@ -5,6 +5,14 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
+
+# If host lacks flex or bison and Podman is available, delegate to build container
+if ! command -v flex >/dev/null 2>&1 || ! command -v bison >/dev/null 2>&1; then
+    if [ ! -f /.dockerenv ] && [ ! -f /run/.containerenv ] && command -v podman >/dev/null 2>&1; then
+        echo "==> flex/bison not detected on host. Delegating to Podman container..."
+        exec "${SCRIPT_DIR}/podman-build.sh" ./scripts/prepare-config.sh "$@"
+    fi
+fi
 TARGET_DIR="${1:-${ROOT_DIR}/src/linux-6.18}"
 FLAVOR="${FLAVOR:-amd64}"  # amd64, cloud-amd64, rt-amd64
 FULL_DEBUG="${FULL_DEBUG:-0}"

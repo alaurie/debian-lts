@@ -37,7 +37,11 @@ config:
 .PHONY: menuconfig
 menuconfig:
 	@if [ ! -d "$(SRC_DIR)" ]; then echo "Error: Run 'make fetch' first."; exit 1; fi
-	@make -C $(SRC_DIR) menuconfig
+	@if command -v podman >/dev/null 2>&1; then \
+		./scripts/podman-build.sh make -C src/linux-6.18 menuconfig; \
+	else \
+		make -C $(SRC_DIR) menuconfig; \
+	fi
 
 .PHONY: build
 build:
