@@ -67,7 +67,8 @@ jobs:
             cpio \
             fakeroot \
             zstd \
-            ccache \
+            debhelper \
+            libdw-dev \
             jq \
             curl \
             git
@@ -105,22 +106,6 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
 
-      - name: Configure ccache
-        if: steps.version_check.outputs.should_build == 'true'
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ccache
-          key: ccache-${{ inputs.flavor || 'amd64' }}-${{ steps.version_check.outputs.target_version }}-${{ github.run_id }}
-          restore-keys: |
-            ccache-${{ inputs.flavor || 'amd64' }}-${{ steps.version_check.outputs.target_version }}-
-            ccache-${{ inputs.flavor || 'amd64' }}-
-
-      - name: Setup ccache Environment
-        if: steps.version_check.outputs.should_build == 'true'
-        run: |
-          ccache -M 5G
-          ccache -s
-
       - name: Fetch Upstream Kernel Source
         if: steps.version_check.outputs.should_build == 'true'
         run: |
@@ -138,11 +123,6 @@ jobs:
         if: steps.version_check.outputs.should_build == 'true'
         run: |
           ./scripts/build.sh
-
-      - name: Display ccache Statistics
-        if: steps.version_check.outputs.should_build == 'true'
-        run: |
-          ccache -s
 
       - name: Inspect Generated Packages
         if: steps.version_check.outputs.should_build == 'true'

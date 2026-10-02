@@ -25,9 +25,11 @@ debian-lts/
 │   ├── setup-env.sh              # Host build dependency checks and installer
 │   ├── fetch-kernel.sh           # Shallow or tag-specific git fetcher
 │   ├── prepare-config.sh         # Reconciles baseline config with upstream Kconfig
-│   ├── build.sh                  # Invokes make bindeb-pkg with ccache and job control
-│   └── build-metapackage.sh      # Builds rolling linux-image-6.18-lts-amd64 metapackages
-├── certs/                        # Optional custom MOK certificates for Secure Boot
+│   ├── build.sh                  # Invokes make bindeb-pkg and job control
+│   ├── build-metapackage.sh      # Builds rolling linux-image-6.18-lts-amd64 metapackages
+│   ├── podman-build.sh           # Container build runner
+│   └── check-upstream.sh         # Checks kernel.org for new LTS point releases
+├── Containerfile                 # Isolated Debian 13 build environment
 └── dist/                         # Generated Debian .deb packages (git-ignored)
 ```
 
@@ -41,9 +43,21 @@ Run dependency verification:
 ```bash
 make setup
 ```
-Required packages: `build-essential bc bison flex libelf-dev libssl-dev dwarves kmod rsync cpio fakeroot zstd libncurses-dev git ccache sbsigntool`.
+Required packages: `build-essential bc bison flex libelf-dev libdw-dev libssl-dev dwarves kmod rsync cpio fakeroot zstd libncurses-dev git debhelper sbsigntool`.
 
-### Build Workflow
+### Containerized Build (Recommended: Zero Host Pollution)
+
+To build inside a clean, isolated Debian 13 container using **Podman** without installing build tools or compilers on the host:
+```bash
+# Build kernel inside Podman container (creates .deb packages in dist/)
+make container-build
+
+# Or launch an interactive shell in the container
+make container-shell
+```
+
+### Host Build Workflow
+
 
 1. **Fetch upstream kernel sources:**
    ```bash

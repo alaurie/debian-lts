@@ -17,7 +17,8 @@ REQUIRED_PACKAGES=(
     zstd
     libncurses-dev
     git
-    ccache
+    debhelper
+    libdw-dev
     sbsigntool
 )
 

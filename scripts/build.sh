@@ -38,9 +38,8 @@ export KDEB_CHANGELOG_DIST="trixie"
 export KBUILD_BUILD_USER="debian-lts"
 export KBUILD_BUILD_HOST="debian-lts"
 
-if command -v ccache >/dev/null 2>&1; then
-    export CC="ccache gcc"
-fi
+# No ccache - direct toolchain build
+export DPKG_FLAGS="-d"
 
 # Clean previous packaging artifacts in kernel parent dir
 rm -f "${ROOT_DIR}/src"/linux-*.deb "${ROOT_DIR}/src"/linux-*.buildinfo "${ROOT_DIR}/src"/linux-*.changes

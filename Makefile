@@ -12,7 +12,9 @@ help:
 	@echo "make fetch        - Fetch or update upstream linux-6.18.y git branch"
 	@echo "make config       - Apply Debian baseline configuration (.config)"
 	@echo "make menuconfig   - Open interactive menuconfig on current .config"
-	@echo "make build        - Compile kernel and build Debian packages (.deb)"
+	@echo "make build        - Compile kernel on host (.deb packages)"
+	@echo "make container-build - Compile kernel inside clean Podman container"
+	@echo "make container-shell - Open interactive shell in Podman build container"
 	@echo "make clean        - Clean build artifacts inside kernel tree"
 	@echo "make distclean    - Remove build artifacts, packages, and kernel tree"
 
@@ -40,6 +42,18 @@ menuconfig:
 .PHONY: build
 build:
 	@./scripts/build.sh
+
+.PHONY: container-image
+container-image:
+	@podman build -t debian-lts-builder:latest -f $(ROOT_DIR)/Containerfile $(ROOT_DIR)
+
+.PHONY: container-build
+container-build:
+	@./scripts/podman-build.sh
+
+.PHONY: container-shell
+container-shell:
+	@./scripts/podman-build.sh bash
 
 .PHONY: clean
 clean:
