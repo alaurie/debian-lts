@@ -1,0 +1,16 @@
+# Kernel source and packaging build artifacts
+/src/
+/dist/
+*.deb
+*.buildinfo
+*.changes
+
+# Local certificates
+/certs/*.key
+/certs/*.crt
+!/certs/.gitkeep
+
+# Editor and temporary files
+*.swp
+*~
+.DS_Store

@@ -1,0 +1,191 @@
+name: Build Debian 6.18 LTS Kernel
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Upstream git tag or release (e.g., v6.18.54 or leave empty for latest)'
+        required: false
+        default: ''
+      flavor:
+        description: 'Kernel configuration flavor'
+        required: true
+        default: 'amd64'
+        type: choice
+        options:
+          - amd64
+          - cloud-amd64
+          - rt-amd64
+      full_debug:
+        description: 'Retain full uncompressed DWARF debug symbols'
+        required: false
+        default: false
+        type: boolean
+      publish_release:
+        description: 'Publish as GitHub Release'
+        required: false
+        default: true
+        type: boolean
+  schedule:
+    - cron: '0 4 * * *' # Daily check and auto-build if new point release available
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Kernel (${{ inputs.flavor || 'amd64' }})
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Reclaim Disk Space
+        run: |
+          echo "==> Freeing runner disk space..."
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          sudo docker image prune --all --force 2>/dev/null || true
+          df -h /
+
+      - name: Install Debian Kernel Build Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            bc \
+            bison \
+            flex \
+            libelf-dev \
+            libssl-dev \
+            dwarves \
+            kmod \
+            rsync \
+            cpio \
+            fakeroot \
+            zstd \
+            ccache \
+            jq \
+            curl \
+            git
+
+      - name: Determine Target Upstream Version
+        id: version_check
+        run: |
+          REQUESTED_TAG="${{ inputs.tag }}"
+          if [ -n "${REQUESTED_TAG}" ]; then
+            CLEAN_VER="${REQUESTED_TAG#v}"
+            echo "target_tag=${REQUESTED_TAG}" >> $GITHUB_OUTPUT
+            echo "target_version=${CLEAN_VER}" >> $GITHUB_OUTPUT
+            echo "should_build=true" >> $GITHUB_OUTPUT
+          else
+            UPSTREAM_INFO=$(./scripts/check-upstream.sh --json)
+            UPSTREAM_VER=$(echo "${UPSTREAM_INFO}" | jq -r '.upstream')
+            CHANGELOG=$(echo "${UPSTREAM_INFO}" | jq -r '.changelog')
+            DIFFVIEW=$(echo "${UPSTREAM_INFO}" | jq -r '.diffview')
+            
+            # Check if release already exists on GitHub
+            RELEASE_EXISTS=$(gh release view "v${UPSTREAM_VER}" >/dev/null 2>&1 && echo "true" || echo "false")
+            
+            echo "target_tag=v${UPSTREAM_VER}" >> $GITHUB_OUTPUT
+            echo "target_version=${UPSTREAM_VER}" >> $GITHUB_OUTPUT
+            echo "changelog_url=${CHANGELOG}" >> $GITHUB_OUTPUT
+            echo "diffview_url=${DIFFVIEW}" >> $GITHUB_OUTPUT
+            
+            if [ "${{ github.event_name }}" = "schedule" ] && [ "${RELEASE_EXISTS}" = "true" ]; then
+              echo "Release v${UPSTREAM_VER} already built. Skipping scheduled run."
+              echo "should_build=false" >> $GITHUB_OUTPUT
+            else
+              echo "should_build=true" >> $GITHUB_OUTPUT
+            fi
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Configure ccache
+        if: steps.version_check.outputs.should_build == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ inputs.flavor || 'amd64' }}-${{ steps.version_check.outputs.target_version }}-${{ github.run_id }}
+          restore-keys: |
+            ccache-${{ inputs.flavor || 'amd64' }}-${{ steps.version_check.outputs.target_version }}-
+            ccache-${{ inputs.flavor || 'amd64' }}-
+
+      - name: Setup ccache Environment
+        if: steps.version_check.outputs.should_build == 'true'
+        run: |
+          ccache -M 5G
+          ccache -s
+
+      - name: Fetch Upstream Kernel Source
+        if: steps.version_check.outputs.should_build == 'true'
+        run: |
+          export TAG="${{ steps.version_check.outputs.target_tag }}"
+          ./scripts/fetch-kernel.sh
+
+      - name: Prepare Kernel Configuration
+        if: steps.version_check.outputs.should_build == 'true'
+        run: |
+          export FLAVOR="${{ inputs.flavor || 'amd64' }}"
+          export FULL_DEBUG="${{ inputs.full_debug == true && '1' || '0' }}"
+          ./scripts/prepare-config.sh
+
+      - name: Compile and Build Debian Packages
+        if: steps.version_check.outputs.should_build == 'true'
+        run: |
+          ./scripts/build.sh
+
+      - name: Display ccache Statistics
+        if: steps.version_check.outputs.should_build == 'true'
+        run: |
+          ccache -s
+
+      - name: Inspect Generated Packages
+        if: steps.version_check.outputs.should_build == 'true'
+        run: |
+          echo "==> Package files:"
+          ls -lh dist/*.deb
+          echo "==> Package control metadata:"
+          for deb in dist/*.deb; do
+            echo "--- ${deb} ---"
+            dpkg-deb -I "${deb}" | grep -E "Package:|Version:|Depends:|Architecture:|Installed-Size:"
+          done
+
+      - name: Upload Build Artifacts
+        if: steps.version_check.outputs.should_build == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-6.18-debs-${{ steps.version_check.outputs.target_version }}-${{ inputs.flavor || 'amd64' }}
+          path: dist/*.deb
+          retention-days: 14
+
+      - name: Publish GitHub Release
+        if: steps.version_check.outputs.should_build == 'true' && (inputs.publish_release == true || github.event_name == 'schedule')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version_check.outputs.target_tag }}
+          name: Linux ${{ steps.version_check.outputs.target_version }} for Debian 13 (Trixie)
+          body: |
+            ## Debian 13 (Trixie) - Linux ${{ steps.version_check.outputs.target_version }} LTS
+
+            Point release built with Debian baseline configuration (`${{ inputs.flavor || 'amd64' }}`).
+
+            - **Upstream Version:** `${{ steps.version_check.outputs.target_version }}`
+            - **Changelog:** ${{ steps.version_check.outputs.changelog_url || 'https://cdn.kernel.org/' }}
+            - **Diffview:** ${{ steps.version_check.outputs.diffview_url || 'https://git.kernel.org/' }}
+
+            ### Installation
+
+            Download the attached `.deb` packages and install via `dpkg`:
+
+            ```bash
+            sudo dpkg -i linux-image-6.18*.deb linux-headers-6.18*.deb
+            sudo update-grub
+            ```
+          files: dist/*.deb
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
